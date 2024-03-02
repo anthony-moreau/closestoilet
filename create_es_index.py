@@ -25,7 +25,7 @@ es.indices.create(index=INDEX_NAME, body=body)
 
 
 def get_data():
-    with open("eu_toilets.txt", "r", encoding="utf-16-le") as source:
+    with open("eu_toilets.json", "r", encoding="utf-16-le") as source:
         for i, line in enumerate(source):
             entry = json.loads(line.replace("\ufeff", ""))
             if entry["type"] == "node":
