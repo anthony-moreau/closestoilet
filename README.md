@@ -18,3 +18,7 @@ PowerShell
 ```
 .\pbf2json.exe -tags="amenity~toilets" .\europe-latest.osm.pbf | Out-File -FilePath .\eu_toilets.json
 ```
+
+# Create elasticsearch index
+
+Copy the json extracted with the previous step in the index folder and run the create_es_index.py script. You may need to change the Elasticsearch connection parameters.
