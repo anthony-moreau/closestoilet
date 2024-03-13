@@ -35,7 +35,6 @@ def find_closest_toilets(latitude, longitude):
         }
     }
     hits = es.search(index=INDEX_NAME, query=query, sort=sort, size=20).body["hits"]["hits"]
-    print(len(hits))
     lat = []
     lon = []
     for hit in hits:
