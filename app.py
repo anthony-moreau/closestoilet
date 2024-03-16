@@ -3,6 +3,8 @@ from elasticsearch import Elasticsearch
 import plotly.graph_objects as go
 import numpy as np
 
+from dash.exceptions import PreventUpdate
+
 INDEX_NAME = "toilets"
 
 es = Elasticsearch("http://127.0.0.1:9200")
@@ -117,22 +119,52 @@ app.layout = html.Div([
     html.Div([
         html.H1("Find the closest toilet"),
         html.Div([
+            html.Button("Update position", id="toggle-geolocation", n_clicks=0),
+            dcc.Interval(id="update-geo-location", interval=30000),
+            dcc.Geolocation(id="geolocation"),
             dcc.Input(id="latitude-input", type="number"), 
             dcc.Input(id="longitude-input", type="number"), 
-            html.Button("Search", id="search-button", n_clicks=0)
+            html.Button("Search", id="search-button", n_clicks=0),
+            dcc.Store("latitude"),
+            dcc.Store("longitude")
             ])
     ], style={"height": "10%"}),
     html.Div(id="fig-container", style={"display": "inline-block", "width": "100%", "height": "90%"})
 ], style={"height": "97vh"})
 
 @app.callback(
+    Output("geolocation", "update_now"), 
+    Input("toggle-geolocation", "n_clicks"),
+    Input("update-geo-location", "n_intervals")
+)
+def update_now(click, interval):
+    return True if (click or interval) and (click > 0 or interval > 0) else False
+
+
+@app.callback(
+    Output("latitude", "data"), 
+    Output("longitude", "data"), 
+    Input("geolocation", "position"), 
+    Input("latitude-input", "value"),
+    Input("longitude-input", "value")
+)
+def aggregate(position, input_lat, input_lon):
+    print(position, input_lat, input_lon)
+    if position:
+        return position["lat"], position["lon"]
+    elif input_lat and input_lon:
+        return input_lat, input_lon
+    raise PreventUpdate
+
+
+@app.callback(
     Output("fig-container", "children"),
     Input("search-button", "n_clicks"),
-    Input("latitude-input", "value"),
-    Input("longitude-input", "value"),
+    Input("latitude", "data"),
+    Input("longitude", "data"),
 )
 def search_index(n_clicks, latitude, longitude):
-    if n_clicks > 0:
+    if latitude is not None and longitude is not None:
         lat, lon = find_closest_toilets(latitude, longitude)
         zoom, center = zoom_center(lons=lon, lats=lat)
         return dcc.Graph(figure=go.Figure([go.Scattermapbox(lat=lat[:20], lon=lon[:20], marker=go.scattermapbox.Marker(size=20)),
