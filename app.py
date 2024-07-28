@@ -1,11 +1,17 @@
-from dash import Dash, dcc, html, Input, Output
-from elasticsearch import Elasticsearch
-import plotly.graph_objects as go
-import numpy as np
+import time
 
+from dash import Dash, dcc, html, Input, Output, State
 from dash.exceptions import PreventUpdate
+from elasticsearch import Elasticsearch
+import numpy as np
+import plotly.graph_objects as go
+from sentence_transformers import SentenceTransformer
 
-INDEX_NAME = "toilets"
+
+TOILET_INDEX_NAME = "toilets"
+ADDRESS_INDEX_NAME = "addresses"
+
+model = SentenceTransformer('intfloat/e5-large-v2', device="cpu")
 
 es = Elasticsearch("http://127.0.0.1:9200")
 
@@ -36,14 +42,35 @@ def find_closest_toilets(latitude, longitude):
             "ignore_unmapped": True
         }
     }
-    hits = es.search(index=INDEX_NAME, query=query, sort=sort, size=20).body["hits"]["hits"]
+    hits = es.search(index=TOILET_INDEX_NAME, query=query, sort=sort, size=20).body["hits"]["hits"]
     lat = []
     lon = []
     for hit in hits:
-        lat.append(hit['_source']['coordinate']['lat'])
-        lon.append(hit['_source']['coordinate']['lon'])
+        lat.append(hit["_source"]["coordinate"]["lat"])
+        lon.append(hit["_source"]["coordinate"]["lon"])
     
     return lat, lon
+
+
+def find_matching_addresses(query):
+    embedded_query = model.encode(query)
+    response = es.search(index=ADDRESS_INDEX_NAME, 
+        fields=["label", "coordinates"],
+        knn={
+            "field": "embedding",
+            "query_vector": embedded_query,
+            "k": 10,
+            "num_candidates": 100
+        })
+    return [to_json_object(doc["_source"]) for doc in response["hits"]["hits"]]
+
+
+def to_json_object(doc):
+    return{
+            "label": doc["label"],
+            "lat": doc["coordinate"]["lat"],
+            "lon": doc["coordinate"]["lon"]
+        }
 
 
 def zoom_center(lons: tuple=None, lats: tuple=None, lonlats: tuple=None,
@@ -125,6 +152,9 @@ app.layout = html.Div([
             dcc.Input(id="latitude-input", type="number"), 
             dcc.Input(id="longitude-input", type="number"), 
             html.Button("Search", id="search-button", n_clicks=0),
+            dcc.Input(id='address-search', type='text', list='list-suggested-addresses', value=''),
+            dcc.Store("suggested-addresses"),
+            html.Datalist(id='list-suggested-addresses'),
             dcc.Store("latitude"),
             dcc.Store("longitude")
             ])
@@ -132,13 +162,36 @@ app.layout = html.Div([
     html.Div(id="fig-container", style={"display": "inline-block", "width": "100%", "height": "90%"})
 ], style={"height": "97vh"})
 
+
 @app.callback(
+    Output("suggested-addresses", "data"), 
+    Output("list-suggested-addresses", "children"), 
+    Input("address-search", "value"),
+)
+def search_address_index(query):
+    start_time = time.time()
+    suggestions = find_matching_addresses(query)
+    print(time.time() - start_time)
+    return suggestions, [html.Option(value=suggestion["label"]) for suggestion in suggestions]
+
+
+@app.callback(
+    Input("list-suggested-addresses", "n_clicks"),
+    State("address-search", "value"),
+    State("suggested-addresses", "data"), 
+)
+def accept_suggestion(n_click, selected_address, address_data):
+    if n_click > 0:
+        print(selected_address)
+
+
+"""@app.callback(
     Output("geolocation", "update_now"), 
     Input("toggle-geolocation", "n_clicks"),
     Input("update-geo-location", "n_intervals")
 )
 def update_now(click, interval):
-    return True if (click or interval) and (click > 0 or interval > 0) else False
+    return True if (click or interval) and (click > 0 or interval > 0) else False"""
 
 
 @app.callback(
@@ -163,7 +216,7 @@ def aggregate(position, input_lat, input_lon):
     Input("latitude", "data"),
     Input("longitude", "data"),
 )
-def search_index(n_clicks, latitude, longitude):
+def search_toilet_index(n_clicks, latitude, longitude):
     if latitude is not None and longitude is not None:
         lat, lon = find_closest_toilets(latitude, longitude)
         zoom, center = zoom_center(lons=lon, lats=lat)
@@ -175,5 +228,6 @@ def search_index(n_clicks, latitude, longitude):
                                                       showlegend=False)),
                          style={"width": "100%", "height": "100%"})
 
+
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server(debug=False)
